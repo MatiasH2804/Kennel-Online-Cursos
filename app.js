@@ -1,36 +1,90 @@
 let videos = [];
 let lastRenderedSignature = "";
+let appStarted = false;
 
-function login(){
+const GOOGLE_USER_KEY = "usuarioGoogle";
 
-  const usuario = document.getElementById("usuario").value.trim();
-  const password = document.getElementById("password").value.trim();
+function getElement(id){
+  return document.getElementById(id);
+}
 
-  if(usuario === "admin" && password === "1234"){
+/* =========================================================
+   LOGIN
+========================================================= */
 
-    localStorage.setItem("logueado","true");
+function showLogin(){
+  getElement("loginView").classList.remove("hidden");
+  getElement("appView").classList.add("hidden");
+}
 
-    document.getElementById("loginView").classList.add("hidden");
-    document.getElementById("appView").classList.remove("hidden");
+function showApp(){
+  getElement("loginView").classList.add("hidden");
+  getElement("appView").classList.remove("hidden");
+}
 
-    cargarVideos();
-
-  }else{
-
-    document.getElementById("loginError").innerText =
-      "Usuario o contrase\u00f1a incorrectos";
-
+function handleGoogleLogin(response){
+  if(!response || !response.credential){
+    getElement("loginError").innerText =
+      "No se pudo iniciar sesi\u00f3n con Google.";
+    return;
   }
 
+  const payload =
+    parseJwt(response.credential);
+
+  localStorage.setItem(
+    GOOGLE_USER_KEY,
+    JSON.stringify(payload)
+  );
+
+  appStarted = true;
+  showApp();
+  cargarVideos();
+}
+
+window.handleGoogleLogin = handleGoogleLogin;
+
+if(window.__pendingGoogleLoginResponse){
+  handleGoogleLogin(window.__pendingGoogleLoginResponse);
+  window.__pendingGoogleLoginResponse = null;
 }
 
 function logout(){
+  localStorage.removeItem(GOOGLE_USER_KEY);
 
-  localStorage.removeItem("logueado");
+  if(window.google && google.accounts && google.accounts.id){
+    google.accounts.id.disableAutoSelect();
+  }
 
-  location.reload();
-
+  lastRenderedSignature = "";
+  appStarted = false;
+  getElement("videosContainer").replaceChildren();
+  showLogin();
 }
+
+function parseJwt(token){
+  const base64Url =
+    token.split(".")[1];
+
+  const base64 =
+    base64Url.replace(/-/g,"+").replace(/_/g,"/");
+
+  const jsonPayload =
+    decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map(char =>
+          `%${(`00${char.charCodeAt(0).toString(16)}`).slice(-2)}`
+        )
+        .join("")
+    );
+
+  return JSON.parse(jsonPayload);
+}
+
+/* =========================================================
+   VIDEOS
+========================================================= */
 
 async function cargarVideos(){
 
@@ -53,14 +107,22 @@ async function cargarVideos(){
 
 }
 
+function getVideoTitle(video){
+  return video["T\u00edtulo"] || video.Titulo || "";
+}
+
+function getVideoInfo(video){
+  return video["Informaci\u00f3n"] || video.Informacion || "";
+}
+
 function renderVideos(lista){
 
   const container =
-    document.getElementById("videosContainer");
+    getElement("videosContainer");
 
   const signature =
     lista
-      .map(video => `${video.Video}|${video.Portada}|${video["T\u00edtulo"]}|${video["Informaci\u00f3n"]}`)
+      .map(video => `${video.Video}|${video.Portada}|${getVideoTitle(video)}|${getVideoInfo(video)}`)
       .join("::");
 
   if(signature === lastRenderedSignature){
@@ -92,7 +154,7 @@ function renderVideos(lista){
       <div class="card-image">
         <img
           src="${video.Portada}"
-          alt="${video["T\u00edtulo"]}"
+          alt="${getVideoTitle(video)}"
           loading="lazy"
           decoding="async"
         >
@@ -101,7 +163,7 @@ function renderVideos(lista){
       <div class="card-title-area">
 
         <span class="card-title">
-          ${video["T\u00edtulo"]}
+          ${getVideoTitle(video)}
         </span>
 
         <span class="card-tag">
@@ -113,7 +175,7 @@ function renderVideos(lista){
       <div class="card-body">
 
         <div class="card-description">
-          ${video["Informaci\u00f3n"]}
+          ${getVideoInfo(video)}
         </div>
 
         <div class="card-actions">
@@ -150,26 +212,35 @@ function renderVideos(lista){
 
 function filtrarVideos(){
 
-  const texto = document
-    .getElementById("searchInput")
-    .value
-    .toLowerCase();
+  const texto =
+    getElement("searchInput").value.toLowerCase();
 
-  const filtrados = videos.filter(v=>
-    v["T\u00edtulo"].toLowerCase().includes(texto)
+  const filtrados = videos.filter(video =>
+    getVideoTitle(video).toLowerCase().includes(texto)
   );
 
   renderVideos(filtrados);
 
 }
 
-window.onload = ()=>{
+/* =========================================================
+   APP
+========================================================= */
 
-  document
-    .getElementById("appView")
-    .classList
-    .remove("hidden");
+window.addEventListener("load",()=>{
+  const usuario =
+    localStorage.getItem(GOOGLE_USER_KEY);
 
-  cargarVideos();
+  if(usuario){
+    if(appStarted){
+      return;
+    }
 
-};
+    appStarted = true;
+    showApp();
+    cargarVideos();
+    return;
+  }
+
+  showLogin();
+});
